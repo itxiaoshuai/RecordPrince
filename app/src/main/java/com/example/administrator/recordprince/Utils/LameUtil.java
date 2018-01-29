@@ -44,7 +44,7 @@ public class LameUtil {
     public native static int flush(byte[] mp3buf);
 
     /**
-     * Close LAME.
+     * Close LAME.关闭 lame)
      */
     public native static void close();
 }
