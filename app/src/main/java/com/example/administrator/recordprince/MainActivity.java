@@ -28,6 +28,8 @@ public class MainActivity extends AppCompatActivity {
     @BindView(R.id.iv_upload)
     ImageView mIvUpload;
 
+    private String filePath;//文件路径
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -38,13 +40,29 @@ public class MainActivity extends AppCompatActivity {
     @OnClick({R.id.iv_read_compare_show_back, R.id.iv_play, R.id.iv_record, R.id.iv_upload})
     public void onViewClicked(View view) {
         switch (view.getId()) {
-            case R.id.iv_read_compare_show_back://返回
+            case R.id.iv_read_compare_show_back:
                 break;
-            case R.id.iv_play://播放
+            case R.id.iv_play:
+//                filePath = FileUtils.getAppPath();
+//                File file = new File(filePath);
+//                if (!file.exists()) {
+//                    if (!file.mkdirs()) {
+//                        Toast.makeText(MainActivity.this, "创建文件失败", Toast.LENGTH_SHORT).show();
+//                        return;
+//                    }
+//
+//                    filePath = FileUtils.getAppPath() + UUID.randomUUID().toString() + ".mp3";
+//                    MP3Recorder mp3Recorder = new MP3Recorder(new File(filePath));
+//                    try {
+//                        mp3Recorder.start();
+//                    } catch (FileNotFoundException e) {
+//                        e.printStackTrace();
+//                    }
+//                }
                 break;
-            case R.id.iv_record://录音
+            case R.id.iv_record:
                 break;
-            case R.id.iv_upload://上传
+            case R.id.iv_upload:
                 break;
         }
     }

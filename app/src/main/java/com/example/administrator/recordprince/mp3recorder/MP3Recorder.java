@@ -3,10 +3,14 @@ package com.example.administrator.recordprince.mp3recorder;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.os.Handler;
 
 import com.example.administrator.recordprince.Base.BaseRecorder;
+import com.example.administrator.recordprince.Utils.LameUtil;
 
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.util.ArrayList;
 
 /**
  * Created by XiaoLuo on 2018/1/29 11:20
@@ -47,6 +51,8 @@ public class MP3Recorder extends BaseRecorder {
 
     private File mRecordFile;
     private AudioRecord mAudioRecord;
+    private DataEncodeThread mEncodeThread;
+    private Handler errorHandler;
     /**
      * 自定义 每160帧作为一个周期，通知一下需要进行编码
      */
@@ -55,6 +61,14 @@ public class MP3Recorder extends BaseRecorder {
     private boolean mIsRecording = false;//录音状态，是否正在录音
     private int mMinBufferSize;//缓冲大小
     private short[] mPCMBuffer;
+    private boolean mSendError;
+    private boolean mPause;//是否暂停
+    private ArrayList<Short> dataList;
+    //最大数量
+    private int mMaxSize;
+    //波形速度
+    private int mWaveSpeed = 300;
+    private static final int MAX_VOLUME = 2000;
 
     /**
      * Default constructor. Setup recorder with default sampling rate 1 channel,
@@ -66,15 +80,77 @@ public class MP3Recorder extends BaseRecorder {
         mRecordFile = recordFile;
     }
 
-    public void start() {
+
+    public void start() throws FileNotFoundException {
         if (mIsRecording) {//如果正在录音，return
             return;
         }
         mIsRecording = true; // 提早，防止init或startRecording被多次调用
         initAudioRecorder();
+        try {
+            mAudioRecord.startRecording();
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+        new Thread() {
+            boolean isError = false;
+
+            @Override
+            public void run() {
+                super.run();
+                //设置线程权限
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);
+                while (mIsRecording) {
+                    int readSize = mAudioRecord.read(mPCMBuffer, 0, mMinBufferSize);
+
+                    if (readSize == AudioRecord.ERROR_INVALID_OPERATION || readSize == AudioRecord.ERROR_BAD_VALUE) {//如果读到错误数值
+                        if (errorHandler != null && !mSendError) {
+                            mSendError = true;
+                            errorHandler.sendEmptyMessage(ERROR_TYPE);
+                            mIsRecording = false;
+                            isError = true;
+                        }
+                    } else {
+                        if (readSize > 0) {
+                            if (mPause) {
+                                continue;
+                            }
+                            mEncodeThread.addTask(mPCMBuffer, readSize);
+                            calculateRealVolume(mPCMBuffer, readSize);
+                            //                            sendData(mPCMBuffer, readSize);
+                        } else {
+                            if (errorHandler != null && !mSendError) {
+                                mSendError = true;
+                                errorHandler.sendEmptyMessage(ERROR_TYPE);
+                                mIsRecording = false;
+                                isError = true;
+                            }
+                        }
+                    }
+
+                    try {
+                        // 释放并完成录音
+                        mAudioRecord.stop();
+                        mAudioRecord.release();
+                        mAudioRecord = null;
+                    } catch (Exception ex) {
+                        ex.printStackTrace();
+                    }
+                    // stop the encoding thread and try to wait
+                    // until the thread finishes its job
+                    if (isError) {
+                        mEncodeThread.sendErrorMessage();
+                    } else {
+                        mEncodeThread.sendStopMessage();
+                    }
+                }
+
+
+            }
+        }.start();
     }
 
-    private void initAudioRecorder() {
+    private void initAudioRecorder() throws FileNotFoundException {
         mMinBufferSize = AudioRecord.getMinBufferSize(DEFAULT_SAMPLING_RATE,
                 DEFAULT_CHANNEL_CONFIG, DEFAULT_AUDIO_FORMAT.getAudioFormat());//采集数据需要的缓冲区的大小
         int bytesPerFrame = DEFAULT_AUDIO_FORMAT.getBytesPerFrame();
@@ -99,13 +175,132 @@ public class MP3Recorder extends BaseRecorder {
         mPCMBuffer = new short[mMinBufferSize];//编码缓冲大小
 
         //初始化MP3编码器
-
-
+        LameUtil.init(DEFAULT_SAMPLING_RATE, DEFAULT_LAME_IN_CHANNEL, DEFAULT_SAMPLING_RATE, DEFAULT_LAME_MP3_BIT_RATE, DEFAULT_LAME_MP3_QUALITY);
+        //创建主线去编码数据
+        mEncodeThread = new DataEncodeThread(mRecordFile, mMinBufferSize);
+        mEncodeThread.start();
+        mAudioRecord.setRecordPositionUpdateListener(mEncodeThread, mEncodeThread.getHandler());
+        mAudioRecord.setPositionNotificationPeriod(FRAME_COUNT);
     }
 
     //重写base中的抽象方法，返回calculateRealVolume计算出的音量
     @Override
     public int getRealVolume() {
         return mVolume;
+    }
+
+    /**
+     * 获取相对音量。 超过最大值时取最大值。
+     *
+     * @return 音量
+     */
+    public int getVolume() {
+        if (mVolume >= MAX_VOLUME) {
+            return MAX_VOLUME;
+        }
+        return mVolume;
+    }
+
+    /**
+     * 根据资料假定的最大值。 实测时有时超过此值。
+     *
+     * @return 最大音量值。
+     */
+    public int getMaxVolume() {
+        return MAX_VOLUME;
+    }
+
+
+    private void sendData(short[] shorts, int readSize) {
+        if (dataList != null) {
+            int length = readSize / mWaveSpeed;
+            short resultMax = 0, resultMin = 0;
+            for (short i = 0, k = 0; i < length; i++, k += mWaveSpeed) {
+                for (short j = k, max = 0, min = 1000; j < k + mWaveSpeed; j++) {
+                    if (shorts[j] > max) {
+                        max = shorts[j];
+                        resultMax = max;
+                    } else if (shorts[j] < min) {
+                        min = shorts[j];
+                        resultMin = min;
+                    }
+                }
+                if (dataList.size() > mMaxSize) {
+                    dataList.remove(0);
+                }
+                dataList.add(resultMax);
+            }
+        }
+    }
+
+
+    /**
+     * 设置数据的获取显示，设置最大的获取数，一般都是控件大小/线的间隔offset
+     *
+     * @param dataList 数据
+     * @param maxSize  最大个数
+     */
+    public void setDataList(ArrayList<Short> dataList, int maxSize) {
+        this.dataList = dataList;
+        this.mMaxSize = maxSize;
+    }
+
+    /**
+     * 是否暂停
+     */
+    public boolean isPause() {
+        return mPause;
+    }
+
+
+    public void setPause(boolean pause) {
+        this.mPause = pause;
+    }
+
+    public void stop() {
+        mPause = false;
+        mIsRecording = false;
+    }
+
+    public boolean isRecording() {
+        return mIsRecording;
+    }
+
+    /**
+     * pcm数据的速度，默认300
+     * 数据越大，速度越慢
+     */
+    public void setWaveSpeed(int waveSpeed) {
+        if (mWaveSpeed <= 0) {
+            return;
+        }
+        this.mWaveSpeed = waveSpeed;
+    }
+
+    public int getWaveSpeed() {
+        return mWaveSpeed;
+    }
+    /**
+     * 设置错误回调
+     *
+     * @param errorHandler 错误通知
+     */
+    public void setErrorHandler(Handler errorHandler) {
+        this.errorHandler = errorHandler;
+    }
+
+    public static void deleteFile(String filePath) {
+        File file = new File(filePath);
+        if (file.exists()) {
+            if (file.isFile()) {
+                file.delete();
+            } else {
+                String[] filePaths = file.list();
+                for (String path : filePaths) {
+                    deleteFile(filePath + File.separator + path);
+                }
+                file.delete();
+            }
+        }
     }
 }
