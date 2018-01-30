@@ -7,6 +7,9 @@ import android.webkit.WebView;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import com.example.administrator.recordprince.Utils.ToastUtils;
+import com.example.administrator.recordprince.mp3recorder.MP3Recorder;
+
 import butterknife.BindView;
 import butterknife.ButterKnife;
 import butterknife.OnClick;
@@ -29,6 +32,8 @@ public class MainActivity extends AppCompatActivity {
     ImageView mIvUpload;
 
     private String filePath;//文件路径
+    private boolean isRecordable = true;//默认是可以录音的
+    private MP3Recorder mRecorder;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,8 +46,11 @@ public class MainActivity extends AppCompatActivity {
     public void onViewClicked(View view) {
         switch (view.getId()) {
             case R.id.iv_read_compare_show_back:
+                ToastUtils.showSingleLongToast("返回");
                 break;
             case R.id.iv_play:
+                ToastUtils.showSingleLongToast("播放");
+
 //                filePath = FileUtils.getAppPath();
 //                File file = new File(filePath);
 //                if (!file.exists()) {
@@ -61,8 +69,14 @@ public class MainActivity extends AppCompatActivity {
 //                }
                 break;
             case R.id.iv_record:
+                ToastUtils.showSingleLongToast("录音");
+                if (isRecordable) {//如果当前是可以录音的状态（UI状态）
+                    if (mRecorder != null && mRecorder.isPause()) {
+                    }
+                }
                 break;
             case R.id.iv_upload:
+                ToastUtils.showSingleLongToast("上传录音");
                 break;
         }
     }
